@@ -133,13 +133,15 @@ function renderTaskInfoField(task, label, prop) {
 }
 
 function renderError(res, err) {
+  console.error(err)
+
   res.status(500).send(`
     <html>
       <body>
         <h1>${err.name}</h1>
         <p>${err.message}</p>
         <pre>
-          ${err.stack.join('\n')}
+          ${err.stack && err.stack.join('\n')}
         </pre>
       </body>
     </html>
