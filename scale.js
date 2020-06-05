@@ -1,54 +1,147 @@
-var express = require('express');
-var bodyParser = require('body-parser');
-var taskModel = require('./taskModel');
+const express = require('express')
+const bodyParser = require('body-parser')
+const Tasks = require('./taskModel')
+const mongoose = require('mongoose')
 
-var app = express();
+const app = express()
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended: false}));
-
-var mongoose = require('mongoose');
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({extended: false}))
 
 // mongoose connect
 if (!process.env.MONGODB_URI) {
 	console.error("No MongoDB URI given. Please supply one as an environment variable MONGODB_URI.")
 }
-mongoose.connect(process.env.MONGODB_URI);
+mongoose.connect(process.env.MONGODB_URI)
 
+app.get('/', async function(req, res) {
+  // get a list of all tasks
+  try {
+    const tasks = await Tasks.find().
+      sort('-created_at').
+      select('task_id created_at completed_at status params')
 
-app.get('/', function(req, res) {
-  res.send('Welcome to the Sample Callback server for Scale API.0');
-});
+    renderTaskGrid(res, tasks)
+  } catch (e) {
+    renderError(res, e)
+  }
+})
+
+app.get('/:taskid', async function (req, res) {
+  try {
+    const task = await Tasks.findById(req.params.taskid)
+    renderTaskInfo(res, task)
+  } catch (e) {
+    renderError(res, e)
+  }
+})
 
 app.post('*', function(req, res) {
   if (process.env.SCALE_CALLBACK_AUTH_KEY) {
     // Verify the callback auth key is correct
     if (req.headers['scale-callback-auth'] !== process.env.SCALE_CALLBACK_AUTH_KEY) {
-      return res.status(500).send("Callback auth key is incorrect. Invalid callback");
+      return res.status(500).send("Callback auth key is incorrect. Invalid callback")
     }
   }
 
   // Send 200 response code immediately
-  res.status(200).send("Success!");
+  res.status(200).send("Success!")
 
   // Update task in db idempotently
-  var task_id = req.body.task_id;
+  const task_id = req.body.task_id
 
-  taskModel.findOneAndUpdate(
+  Tasks.findOneAndUpdate(
     { task_id: task_id },
     req.body.task,
     { upsert: true, new: true },
     function(err, task) {
       if (err) {
-        console.error("Error updating document: " + err);
+        console.error("Error updating document: " + err)
       } else {
-        console.log(`Task (task_id: ${task_id}) successfully updated!`);
+        console.log(`Task (task_id: ${task_id}) successfully updated!`)
       }
-    });
-});
+    })
+})
 
 
-var port = process.env.PORT || 3000;
+const port = process.env.PORT || 3000
 app.listen(port, function() {
-  console.log('Express server running on localhost:%d', port);
-});
+  console.log('Express server running on localhost:%d', port)
+})
+
+function renderTaskGrid(res, tasks) {
+  res.status(200).send(`
+    <html>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th>task id</th>
+              <th>created at</th>
+              <th>completed at</th>
+              <th>status</th>
+              <th>actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tasks.map(renderTaskRow)}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `)
+}
+
+function renderTaskRow(task) {
+  return `
+    <tr>
+      <td>${task.task_id}</td>
+      <td>${task.created_at}</td>
+      <td>${task.completed_at}</td>
+      <td>${task.status}</td>
+      <td><a href='/${task.task_id}'>View Details</a></td>
+    </tr>
+  `
+}
+
+function renderTaskInfo(res, task) {
+  res.status(200).send(`
+    <html>
+      <body>
+        <table>
+          <tbody>
+            <tr>
+              ${renderTaskInfoField(task, 'id', 'task_id')}
+              ${renderTaskInfoField(task, 'created', 'created_at')}
+              ${renderTaskInfoField(task, 'completed', 'completed_at')}
+              ${renderTaskInfoField(task, 'status', 'status')}
+              <th><strong>image</strong></th><td><img src='${task.params.attachment}' width='640' height='480' /></td>
+              ${renderTaskInfoField(task, 'image', 'status')}
+              <th><strong>response</strong></th><td><pre>${JSON.stringify(task.response, null, 2)}</pre></td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `)
+}
+
+function renderTaskInfoField(task, label, prop) {
+  return `
+    <th><strong>${label}</strong></th><td>${task[prop]}</td>
+  `
+}
+
+function renderError(res, err) {
+  res.status(500).send(`
+    <html>
+      <body>
+        <h1>${err.name}</h1>
+        <p>${err.message}</p>
+        <pre>
+          ${err.stack.join('\n')}
+        </pre>
+      </body>
+    </html>
+  `)
+}
